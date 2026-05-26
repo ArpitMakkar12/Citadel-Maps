@@ -3,752 +3,951 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SafeRoute AI - Safety Heatmap</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <title>Citadel Maps — Safe Route AI</title>
+
+    <!-- Leaflet CSS (free, open-source maps) -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+    <!-- Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+
     <style>
+        :root {
+            --bg-deep:    #060b16;
+            --bg-panel:   rgba(6, 11, 22, 0.90);
+            --bg-input:   rgba(255,255,255,0.05);
+            --border:     rgba(0, 210, 255, 0.14);
+            --accent:     #00d4ff;
+            --accent-dim: rgba(0, 212, 255, 0.25);
+            --text-1:     #dff0f8;
+            --text-2:     #6a94b0;
+            --safe:       #00ffaa;
+            --warn:       #ffb800;
+            --danger:     #ff3c3c;
+            --blue:       #4f8eff;
+        }
+
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
         html, body {
             height: 100%;
-            margin: 0;
-            padding: 0;
-            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            font-family: 'DM Sans', sans-serif;
+            background: var(--bg-deep);
+            color: var(--text-1);
         }
+
+        /* ── MAP ─────────────────────────────────────────────────────────── */
         #map {
-            height: 100%;
-            width: 100%;
+            position: absolute;
+            inset: 0;
+            z-index: 0;
         }
-        #toast-notification {
-            transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-            transform: translateY(100%);
-            opacity: 0;
+
+        .leaflet-control-attribution,
+        .leaflet-control-zoom { display: none !important; }
+
+        /* ── PANEL ───────────────────────────────────────────────────────── */
+        #panel {
+            position: absolute;
+            top: 14px;
+            left: 14px;
+            z-index: 1000;
+            width: 308px;
+            background: var(--bg-panel);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid var(--border);
+            border-radius: 18px;
+            overflow: visible;
+            box-shadow:
+                0 0 0 1px rgba(0,212,255,0.04),
+                0 12px 40px rgba(0,0,0,0.7),
+                inset 0 1px 0 rgba(255,255,255,0.05);
         }
-        #toast-notification.show {
-            transform: translateY(0);
-            opacity: 1;
+
+        .panel-head {
+            padding: 15px 18px;
+            border-bottom: 1px solid var(--border);
+            background: linear-gradient(130deg, rgba(0,212,255,0.07) 0%, transparent 70%);
+            display: flex;
+            align-items: center;
+            gap: 11px;
+            border-radius: 18px 18px 0 0;
         }
-         /* Style for the new Autocomplete */
-        gmp-place-autocomplete {
-            width: 100%;
+
+        .shield {
+            width: 34px; height: 34px;
+            background: linear-gradient(135deg, var(--accent), #007baa);
+            border-radius: 9px;
+            display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0;
+            box-shadow: 0 0 14px rgba(0,212,255,0.35);
+        }
+
+        .app-title {
+            font-family: 'Bebas Neue', cursive;
+            font-size: 22px;
+            letter-spacing: 2.5px;
+            color: var(--accent);
+            line-height: 1;
+        }
+        .app-sub {
+            font-size: 9.5px;
+            color: var(--text-2);
+            letter-spacing: 1.8px;
+            text-transform: uppercase;
+            margin-top: 2px;
+        }
+
+        .panel-body {
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            gap: 9px;
+        }
+
+        /* ── INPUTS & AUTOCOMPLETE ───────────────────────────────────────── */
+        .input-wrap {
             position: relative;
         }
-        input.pac-input {
-             width: 100% !important;
-             background-color: #374151 !important; /* gray-700 */
-             color: #F3F4F6 !important; /* gray-100 */
-             padding: 0.5rem !important;
-             border-radius: 0.375rem !important; /* rounded-md */
-             border: 1px solid #4B5563 !important; /* gray-600 */
-        }
-        /* Base style for all report markers */
-        .report-marker {
-            width: 30px;
-            height: 30px;
+
+        .dot {
+            position: absolute;
+            left: 11px; top: 50%;
+            transform: translateY(-50%);
+            width: 8px; height: 8px;
             border-radius: 50%;
+            z-index: 2;
+            pointer-events: none;
+        }
+        .dot-start { background: var(--safe);   box-shadow: 0 0 7px var(--safe); }
+        .dot-end   { background: var(--danger);  box-shadow: 0 0 7px var(--danger); }
+
+        .s-input {
+            width: 100%;
+            background: var(--bg-input);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 10px 12px 10px 28px;
+            color: var(--text-1);
+            font-family: 'DM Sans', sans-serif;
+            font-size: 13px;
+            outline: none;
+            transition: border-color .2s, background .2s;
+        }
+        .s-input:focus {
+            border-color: var(--accent);
+            background: rgba(0,212,255,0.05);
+        }
+        .s-input::placeholder { color: var(--text-2); }
+
+        .ac-drop {
+            display: none;
+            position: absolute;
+            top: calc(100% + 5px);
+            left: 0; right: 0;
+            background: rgba(8,14,28,0.98);
+            backdrop-filter: blur(24px);
+            border: 1px solid var(--border);
+            border-radius: 11px;
+            z-index: 3000;
+            overflow: hidden;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+        }
+        .ac-drop.open { display: block; }
+
+        .ac-item {
+            padding: 9px 13px;
+            font-size: 12px;
+            cursor: pointer;
+            border-bottom: 1px solid rgba(255,255,255,0.04);
+            transition: background .15s;
+        }
+        .ac-item:hover { background: rgba(0,212,255,0.08); }
+        .ac-item:last-child { border-bottom: none; }
+        .ac-name   { font-weight: 600; color: var(--text-1); }
+        .ac-detail { font-size: 10.5px; color: var(--text-2); margin-top: 1px; }
+
+        /* ── BUTTON ─────────────────────────────────────────────────────── */
+        #route-btn {
+            width: 100%;
+            padding: 11px;
+            background: linear-gradient(135deg, var(--accent), #0099cc);
+            border: none;
+            border-radius: 10px;
+            color: #000;
+            font-family: 'Bebas Neue', cursive;
+            font-size: 15px;
+            letter-spacing: 2.5px;
+            cursor: pointer;
+            transition: opacity .2s, transform .1s, box-shadow .2s;
+            box-shadow: 0 4px 16px rgba(0,212,255,0.25);
+        }
+        #route-btn:hover:not(:disabled) { opacity: .9; transform: translateY(-1px); box-shadow: 0 6px 20px rgba(0,212,255,0.4); }
+        #route-btn:active:not(:disabled) { transform: translateY(0); }
+        #route-btn:disabled { opacity: .45; cursor: not-allowed; }
+
+        /* ── ROUTE INFO ─────────────────────────────────────────────────── */
+        #route-info {
+            display: none;
+            background: rgba(0,0,0,0.28);
+            border: 1px solid var(--border);
+            border-radius: 11px;
+            padding: 13px;
         }
 
-        /* Brighter Color for Harassment/Incident reports (Red) */
-        .marker-incident {
-            background-color: rgba(239, 68, 68, 0.85); /* Increased opacity */
-            box-shadow: 0 0 20px 12px rgba(239, 68, 68, 0.75); /* More focused glow */
+        .score-wrap { text-align: center; }
+        .score-lbl {
+            font-size: 9px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--text-2);
+        }
+        .score-num {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 52px;
+            font-weight: 700;
+            line-height: 1;
+            margin: 2px 0;
+        }
+        .score-risk {
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.5px;
+            text-transform: uppercase;
         }
 
-        /* Brighter Color for Poorly Lit reports (Yellow) */
-        .marker-unlit {
-            background-color: rgba(234, 179, 8, 0.85); /* Increased opacity */
-            box-shadow: 0 0 20px 12px rgba(234, 179, 8, 0.75); /* More focused glow */
+        .score-track {
+            height: 4px;
+            background: rgba(255,255,255,0.08);
+            border-radius: 2px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        .score-fill {
+            height: 100%;
+            border-radius: 2px;
+            transition: width .9s cubic-bezier(.4,0,.2,1);
         }
 
-        /* Brighter Color for Too Crowded reports (Blue) */
-        .marker-crowded {
-            background-color: rgba(59, 130, 246, 0.85); /* Increased opacity */
-            box-shadow: 0 0 20px 12px rgba(59, 130, 246, 0.75); /* More focused glow */
+        .dist-line {
+            text-align: center;
+            font-size: 11px;
+            color: var(--text-2);
+            margin-bottom: 9px;
         }
 
-        /* Brighter Color for All Safe reports (Green) */
-        .marker-safe {
-            background-color: rgba(34, 197, 94, 0.85); /* Increased opacity */
-            box-shadow: 0 0 20px 12px rgba(34, 197, 94, 0.75); /* More focused glow */
-        }html, body {
-    height: 100%;
-    margin: 0;
-    padding: 0;
-    font-family: 'Inter', sans-serif;
-}
+        .dur-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+        }
+        .dur-cell {
+            background: rgba(255,255,255,0.04);
+            border-radius: 8px;
+            padding: 8px 10px;
+        }
+        .dur-mode { font-size: 10px; color: var(--text-2); text-transform: uppercase; letter-spacing: .8px; }
+        .dur-val  { font-family: 'JetBrains Mono', monospace; font-size: 13px; font-weight: 500; color: var(--text-1); margin-top: 3px; }
 
-#map {
-    height: 100%;
-    width: 100%;
-}
+        .route-key {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 10px;
+            padding-top: 10px;
+            border-top: 1px solid var(--border);
+        }
+        .rk-item { display: flex; align-items: center; gap: 5px; font-size: 10px; color: var(--text-2); }
+        .rk-line  { width: 22px; height: 4px; border-radius: 2px; }
 
-#toast-notification {
-    transition: transform 0.3s ease-in-out, opacity 0.3s ease-in-out;
-    transform: translateY(100%);
-    opacity: 0;
-}
+        /* ── LEGEND ─────────────────────────────────────────────────────── */
+        #legend {
+            position: absolute;
+            bottom: 20px; right: 14px;
+            z-index: 1000;
+            background: var(--bg-panel);
+            backdrop-filter: blur(24px);
+            -webkit-backdrop-filter: blur(24px);
+            border: 1px solid var(--border);
+            border-radius: 13px;
+            padding: 13px 15px;
+            min-width: 175px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+        }
+        .leg-title {
+            font-size: 9px;
+            letter-spacing: 2px;
+            text-transform: uppercase;
+            color: var(--text-2);
+            font-weight: 600;
+            margin-bottom: 10px;
+        }
+        .leg-row {
+            display: flex;
+            align-items: center;
+            gap: 9px;
+            margin-bottom: 7px;
+            font-size: 12px;
+            color: var(--text-1);
+        }
+        .leg-row:last-child { margin-bottom: 0; }
+        .leg-dot {
+            width: 11px; height: 11px;
+            border-radius: 50%;
+            flex-shrink: 0;
+        }
 
-#toast-notification.show {
-    transform: translateY(0);
-    opacity: 1;
-}
+        /* ── SOS ────────────────────────────────────────────────────────── */
+        #sos-btn {
+            position: absolute;
+            bottom: 20px; left: 14px;
+            z-index: 1000;
+            width: 58px; height: 58px;
+            background: radial-gradient(circle at 40% 35%, #ff2a2a, #aa0000);
+            border: 2px solid rgba(255,80,80,0.45);
+            border-radius: 50%;
+            color: white;
+            font-family: 'Bebas Neue', cursive;
+            font-size: 15px;
+            letter-spacing: 2px;
+            cursor: pointer;
+            animation: sos-glow 2.8s ease-in-out infinite;
+            box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+            transition: transform .15s;
+        }
+        #sos-btn:hover { transform: scale(1.07); animation: none; box-shadow: 0 0 28px rgba(255,40,40,0.65); }
+        @keyframes sos-glow {
+            0%,100% { box-shadow: 0 0 14px rgba(255,40,40,0.35), 0 4px 14px rgba(0,0,0,0.5); }
+            50%      { box-shadow: 0 0 28px rgba(255,40,40,0.65), 0 4px 14px rgba(0,0,0,0.5); }
+        }
 
- /* Style for the new Autocomplete */
-gmp-place-autocomplete {
-    width: 100%;
-    position: relative;
-}
+        /* ── THEME TOGGLE ───────────────────────────────────────────────── */
+        #theme-btn {
+            position: absolute;
+            top: 14px; right: 14px;
+            z-index: 1000;
+            width: 40px; height: 40px;
+            background: var(--bg-panel);
+            backdrop-filter: blur(24px);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            cursor: pointer;
+            font-size: 18px;
+            display: flex; align-items: center; justify-content: center;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.35);
+            transition: background .2s;
+        }
+        #theme-btn:hover { background: rgba(0,212,255,0.1); }
 
-input.pac-input {
-     width: 100% !important;
-     background-color: #374151 !important; /* gray-700 */
-     color: #F3F4F6 !important; /* gray-100 */
-     padding: 0.5rem !important;
-     border-radius: 0.375rem !important; /* rounded-md */
-     border: 1px solid #4B5563 !important; /* gray-600 */
-}
+        /* ── TOAST ──────────────────────────────────────────────────────── */
+        #toast {
+            position: absolute;
+            bottom: 95px;
+            left: 50%; transform: translateX(-50%) translateY(14px);
+            z-index: 2000;
+            background: rgba(6,14,28,0.96);
+            border: 1px solid var(--border);
+            border-radius: 10px;
+            padding: 9px 20px;
+            font-size: 13px;
+            color: var(--text-1);
+            backdrop-filter: blur(20px);
+            opacity: 0;
+            pointer-events: none;
+            white-space: nowrap;
+            transition: opacity .28s, transform .28s;
+        }
+        #toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+        #toast.err  { border-color: rgba(255,60,60,0.5); color: #ff8080; }
+        #toast.ok   { border-color: rgba(0,255,170,0.5); color: var(--safe); }
 
-/* Base style for all report markers */
-.report-marker {
-    width: 20px; /* Reduced size */
-    height: 20px; /* Reduced size */
-    border-radius: 50%;
-}
+        /* ── SPINNER ────────────────────────────────────────────────────── */
+        .spin {
+            display: inline-block;
+            width: 11px; height: 11px;
+            border: 2px solid rgba(0,0,0,0.3);
+            border-top-color: #000;
+            border-radius: 50%;
+            animation: spinning .55s linear infinite;
+            vertical-align: middle;
+            margin-right: 6px;
+        }
+        @keyframes spinning { to { transform: rotate(360deg); } }
 
-/* --- UPDATED MARKER STYLES --- */
-
-/* Brighter Color for Harassment/Incident reports (Red) */
-.marker-incident {
-    background-color: rgba(239, 68, 68, 0.9);
-    border: 2px solid rgba(252, 165, 165, 0.9); /* Lighter red border */
-    box-shadow: 0 0 8px 3px rgba(239, 68, 68, 0.6); /* Smaller, tighter glow */
-}
-
-/* Brighter Color for Poorly Lit reports (Yellow) */
-.marker-unlit {
-    background-color: rgba(234, 179, 8, 0.9);
-    border: 2px solid rgba(252, 211, 77, 0.9); /* Lighter yellow border */
-    box-shadow: 0 0 8px 3px rgba(234, 179, 8, 0.6); /* Smaller, tighter glow */
-}
-
-/* Brighter Color for Too Crowded reports (Blue) */
-.marker-crowded {
-    background-color: rgba(59, 130, 246, 0.9);
-    border: 2px solid rgba(147, 197, 253, 0.9); /* Lighter blue border */
-    box-shadow: 0 0 8px 3px rgba(59, 130, 246, 0.6); /* Smaller, tighter glow */
-}
-
-/* Brighter Color for All Safe reports (Green) */
-.marker-safe {
-    background-color: rgba(34, 197, 94, 0.9);
-    border: 2px solid rgba(134, 239, 172, 0.9); /* Lighter green border */
-    box-shadow: 0 0 8px 3px rgba(34, 197, 94, 0.6); /* Smaller, tighter glow */
-}
-
-/* Style for Safe Zone markers (Police Stations) */
-.marker-safezone {
-    width: 24px;
-    height: 24px;
-    background-color: rgba(37, 99, 235, 0.9); /* blue-700 */
-    border: 2px solid white;
-    border-radius: 50%;
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    color: white;
-    font-weight: bold;
-    font-size: 14px;
-}
+        /* ── DATA LOADING INDICATOR ─────────────────────────────────────── */
+        #data-status {
+            position: absolute;
+            top: 14px;
+            left: 50%;
+            transform: translateX(-50%);
+            z-index: 1000;
+            background: var(--bg-panel);
+            backdrop-filter: blur(20px);
+            border: 1px solid var(--border);
+            border-radius: 20px;
+            padding: 6px 14px;
+            font-size: 11px;
+            color: var(--text-2);
+            display: flex;
+            align-items: center;
+            gap: 7px;
+            box-shadow: 0 4px 14px rgba(0,0,0,0.4);
+            transition: opacity .4s;
+        }
+        #data-status.hidden { opacity: 0; pointer-events: none; }
+        .status-dot {
+            width: 7px; height: 7px;
+            border-radius: 50%;
+            background: var(--warn);
+            animation: blink 1.2s ease-in-out infinite;
+        }
+        .status-dot.ready { background: var(--safe); animation: none; }
+        @keyframes blink { 0%,100%{opacity:1} 50%{opacity:.3} }
     </style>
 </head>
-<body class="bg-gray-900 text-white">
+<body>
 
+    <!-- Map -->
     <div id="map"></div>
-    <div class="absolute bottom-8 left-4 z-10">
-        <button id="sos-btn" class="bg-red-600 hover:bg-red-700 text-white rounded-full p-4 shadow-lg focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-red-500 transition-transform transform hover:scale-110">
-            <svg class="h-8 w-8" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="1" d="M12 12h.01" />
-            </svg>
-            <span class="absolute inset-0 flex items-center justify-center font-bold text-lg">SOS</span>
-        </button>
-    </div>
-    <div class="absolute bottom-8 right-8 z-10 bg-gray-800 bg-opacity-80 backdrop-blur-sm p-4 rounded-lg shadow-lg text-white w-52">
-        <h3 class="text-md font-bold mb-3 text-center border-b border-gray-700 pb-2">Risk-Indicators</h3>
-        <div class="space-y-3 text-sm">
-            <div class="flex items-center">
-                <div class="w-4 h-4 rounded-full mr-3 shrink-0 marker-incident"></div>
-                <span>Harassment/Incident</span>
+
+    <!-- Panel -->
+    <div id="panel">
+        <div class="panel-head">
+            <div class="shield">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
+                     stroke="#000" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                </svg>
             </div>
-            <div class="flex items-center">
-                <div class="w-4 h-4 rounded-full mr-3 shrink-0 marker-unlit"></div>
-                <span>Poorly Lit</span>
+            <div>
+                <div class="app-title">Citadel Maps</div>
+                <div class="app-sub">Safety-Aware Navigation</div>
             </div>
-            <div class="flex items-center">
-                <div class="w-4 h-4 rounded-full mr-3 shrink-0 marker-crowded"></div>
-                <span>Too Crowded</span>
+        </div>
+
+        <div class="panel-body">
+            <!-- Start -->
+            <div class="input-wrap">
+                <div class="dot dot-start"></div>
+                <input id="start-input" class="s-input" type="text"
+                       placeholder="Starting point…" autocomplete="off">
+                <div class="ac-drop" id="start-drop"></div>
             </div>
-            <div class="flex items-center">
-                <div class="w-4 h-4 rounded-full mr-3 shrink-0 marker-safe"></div>
-                <span>All Safe</span>
+
+            <!-- Destination -->
+            <div class="input-wrap">
+                <div class="dot dot-end"></div>
+                <input id="end-input" class="s-input" type="text"
+                       placeholder="Destination…" autocomplete="off">
+                <div class="ac-drop" id="end-drop"></div>
             </div>
-            <div class="flex items-center">
-                <div class="w-4 h-4 rounded-full mr-3 shrink-0 marker-safezone"></div>
-                <span>Police Stations</span>
+
+            <!-- Button -->
+            <button id="route-btn">Find Safest Route</button>
+
+            <!-- Route result -->
+            <div id="route-info">
+                <div class="score-wrap">
+                    <div class="score-lbl">Safety Score</div>
+                    <div class="score-num" id="score-num">--</div>
+                    <div class="score-risk" id="score-risk"></div>
+                </div>
+                <div class="score-track">
+                    <div class="score-fill" id="score-fill" style="width:0%"></div>
+                </div>
+                <div class="dist-line" id="dist-line"></div>
+                <div class="dur-grid">
+                    <div class="dur-cell">
+                        <div class="dur-mode">🚶 Walk</div>
+                        <div class="dur-val" id="d-walk">--</div>
+                    </div>
+                    <div class="dur-cell">
+                        <div class="dur-mode">🚗 Drive</div>
+                        <div class="dur-val" id="d-drive">--</div>
+                    </div>
+                    <div class="dur-cell">
+                        <div class="dur-mode">🚲 Cycle</div>
+                        <div class="dur-val" id="d-cycle">--</div>
+                    </div>
+                    <div class="dur-cell">
+                        <div class="dur-mode">🚌 Transit</div>
+                        <div class="dur-val" id="d-transit">N/A</div>
+                    </div>
+                </div>
+                <div class="route-key">
+                    <div class="rk-item"><div class="rk-line" style="background:var(--safe)"></div>Safest</div>
+                    <div class="rk-item"><div class="rk-line" style="background:var(--warn)"></div>Moderate</div>
+                    <div class="rk-item"><div class="rk-line" style="background:var(--danger)"></div>High Risk</div>
+                </div>
             </div>
         </div>
     </div>
-    <!-- API Key Warning -->
-    <div id="apiKeyWarning" class="hidden absolute inset-0 z-20 bg-gray-900 bg-opacity-90 flex items-center justify-center text-center p-8">
-        <div>
-            <h2 class="text-3xl font-bold text-red-500 mb-4">Configuration Error</h2>
-            <p class="text-lg text-gray-300 mb-2">Your Google Maps API key or Map ID is missing/invalid.</p>
-            <p class="text-md text-gray-400">Please replace <code class="bg-gray-700 text-yellow-400 p-1 rounded">'YOUR_API_KEY'</code> and <code class="bg-gray-700 text-yellow-400 p-1 rounded">'YOUR_MAP_ID'</code> in the code.</p>
+
+    <!-- Data status pill -->
+    <div id="data-status">
+        <div class="status-dot" id="status-dot"></div>
+        <span id="status-text">Loading safety data…</span>
+    </div>
+
+    <!-- Theme toggle -->
+    <button id="theme-btn" title="Toggle theme">🌙</button>
+
+    <!-- Legend -->
+    <div id="legend">
+        <div class="leg-title">Risk Indicators</div>
+        <div class="leg-row">
+            <div class="leg-dot" style="background:#ff3c3c;box-shadow:0 0 6px rgba(255,60,60,.65)"></div>
+            Harassment / Incident
+        </div>
+        <div class="leg-row">
+            <div class="leg-dot" style="background:#ffb800;box-shadow:0 0 6px rgba(255,184,0,.65)"></div>
+            Poorly Lit Area
+        </div>
+        <div class="leg-row">
+            <div class="leg-dot" style="background:#4f8eff;box-shadow:0 0 6px rgba(79,142,255,.65)"></div>
+            Too Crowded
+        </div>
+        <div class="leg-row">
+            <div class="leg-dot" style="background:#00ffaa;box-shadow:0 0 6px rgba(0,255,170,.65)"></div>
+            All Safe
+        </div>
+        <div class="leg-row">
+            <div class="leg-dot" style="background:#2563eb;border:2px solid #fff;"></div>
+            Police Station
         </div>
     </div>
 
-    <!-- Main UI Panel -->
-<div class="absolute top-4 left-4 z-10 w-full max-w-sm">
-    <div class="bg-gray-800 rounded-xl shadow-lg p-4">
-        <h1 class="text-xl font-bold text-center text-white">Citadel Maps</h1>
-        
-        <div class="mt-4 space-y-2">
-            <div class="relative">
-                <input id="start-input" type="text" placeholder="Enter starting point" class="w-full bg-gray-700 text-gray-100 p-2 rounded-md border border-gray-600 focus:border-indigo-500 focus:outline-none">
-            </div>
-            <div class="relative">
-                <input id="end-input" type="text" placeholder="Enter destination" class="w-full bg-gray-700 text-gray-100 p-2 rounded-md border border-gray-600 focus:border-indigo-500 focus:outline-none">
-            </div>
-        </div>
-        
-        <button id="get-route-btn" class="w-full mt-3 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-2 px-4 rounded-lg transition">Find Safest Route</button>
-        
+    <!-- SOS -->
+    <button id="sos-btn">SOS</button>
 
-        <div id="route-info" class="hidden mt-4 text-center bg-gray-700 p-4 rounded-lg shadow-inner">
-            <p class="text-lg text-gray-200">Overall Safest Route Score:</p>
-            <p id="safety-score" class="text-4xl font-extrabold"></p>
-            <p id="safety-level" class="text-md font-medium"></p>
+    <!-- Toast -->
+    <div id="toast"></div>
 
-            <div id="route-details" class="mt-4 pt-4 border-t border-gray-600 text-left space-y-2 text-gray-300 text-sm">
-                <p id="route-distance"></p>
-                <p><strong>By Car:</strong> <span id="duration-driving" class="float-right">--</span></p>
-                <p><strong>By Bike:</strong> <span id="duration-bicycling" class="float-right">--</span></p>
-                <p><strong>By Transit:</strong> <span id="duration-transit" class="float-right">--</span></p>
-                <p><strong>By Walking:</strong> <span id="duration-walking" class="float-right">--</span></p>
-            </div>
-        </div>
-    </div>
-</div>
+    <!-- ── Leaflet JS (free, no key needed) ─────────────────────────────── -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-
-
-    <!-- Toast Notification -->
-    <div id="toast-notification" class="absolute bottom-8 left-1/2 -translate-x-1/2 z-40 bg-gray-700 text-white py-2 px-5 rounded-lg shadow-lg">
-        <span id="toast-message"></span>
-    </div>
-
-    <script src="https://maps.googleapis.com/maps/api/js?key=AIzaSyBtVQEq_10-a7mWd4oaXgKFk1TRhqZcGY8&libraries=places,geometry,marker&v=beta"></script>
-
+    <!-- ── Firebase (keep your existing project) ────────────────────────── -->
     <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getFirestore, collection, addDoc, serverTimestamp, query, onSnapshot, GeoPoint } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
+        import { initializeApp }  from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
+        import { getFirestore, collection, query, onSnapshot }
+            from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
 
+        /* ─── Firebase config (unchanged from your project) ─────────────── */
         const firebaseConfig = {
-            apiKey: "AIzaSyBbQrJCnNISZqrKrlyDSt7oLz558Um9DTM",
-            authDomain: "saferoute-ai-685e3.firebaseapp.com",
-            projectId: "saferoute-ai-685e3",
-            storageBucket: "saferoute-ai-685e3.appspot.com",
+            apiKey:            "AIzaSyBbQrJCnNISZqrKrlyDSt7oLz558Um9DTM",
+            authDomain:        "saferoute-ai-685e3.firebaseapp.com",
+            projectId:         "saferoute-ai-685e3",
+            storageBucket:     "saferoute-ai-685e3.appspot.com",
             messagingSenderId: "874452490466",
-            appId: "1:874452490466:web:077ba705107e0766b366bb"
+            appId:             "1:874452490466:web:077ba705107e0766b366bb"
         };
 
         const app = initializeApp(firebaseConfig);
-        const db = getFirestore(app);
+        const db  = getFirestore(app);
 
-        // Global Variables
-        let map;
-        let userMarker;
+        /* ─── State ──────────────────────────────────────────────────────── */
+        let map, darkLayer, lightLayer;
+        let isDark          = true;
+        let dangerPoints    = [];        // { lat, lng, weight }
+        let reportMarkers   = [];
+        let safeZonesData   = [];        // { lat, lng, name, marker }
+        let routeLayers     = [];
         let currentPosition = null;
-        let dangerPoints = [];
-        let directionsService;
-        let routeRenderers = [];
-        let debugMarkers = [];
-        let safeZones = [];
-        let isSafetyDataLoaded = false;
-        let Map, AdvancedMarkerElement;
-        
-        // Store selected places and autocomplete instances
-        let startAutocomplete, endAutocomplete;
-        let selectedStartPlace = null;
-        let selectedEndPlace = null;
+        let userMarker      = null;
+        let isSafeDataReady = false;
+        let selectedStart   = null;      // { lat, lng }
+        let selectedEnd     = null;
+        let startTimer, endTimer;
+        let toastTimer;
 
-        // Function Definitions
-        function checkApiKey() {
-            const scriptSrc = document.querySelector('script[src*="maps.googleapis.com"]').src;
-            const mapId = map?.getMapId();
-            if (scriptSrc.includes("YOUR_API_KEY") || !mapId || mapId === 'YOUR_MAP_ID') {
-                document.getElementById('apiKeyWarning').classList.remove('hidden');
-                return false;
-            }
-            return true;
+        /* ─── Helpers ────────────────────────────────────────────────────── */
+        function fmtDuration(seconds) {
+            const m = Math.round(seconds / 60);
+            return m < 60 ? `${m} min` : `${Math.floor(m/60)}h ${m%60}m`;
+        }
+        function fmtDistance(m) {
+            return m < 1000 ? `${Math.round(m)} m` : `${(m/1000).toFixed(1)} km`;
         }
 
-        // Add this entire new function inside your <script type="module">
-function initializeSafeZones() {
-    const q = query(collection(db, "safezones"));
-    onSnapshot(q, (snapshot) => {
-        // Clear old markers
-        safeZones.forEach(zone => {
-            if (zone.marker) zone.marker.setMap(null);
+        function showToast(msg, type = '') {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = `show ${type}`;
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => { t.className = ''; }, 3200);
+        }
+
+        function divIcon(html, size) {
+            return L.divIcon({ className: '', html, iconSize: size, iconAnchor: [size[0]/2, size[1]/2] });
+        }
+
+        /* ─── Map init ───────────────────────────────────────────────────── */
+        function initMap() {
+            map = L.map('map', { center: [16.5062, 80.6480], zoom: 14,
+                                  zoomControl: false, attributionControl: false });
+
+            darkLayer  = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+                                      { maxZoom: 19 }).addTo(map);
+            lightLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+                                      { maxZoom: 19 });
+        }
+
+        /* ─── Geolocation ────────────────────────────────────────────────── */
+        function initGeo() {
+            if (!navigator.geolocation) return;
+            navigator.geolocation.getCurrentPosition(pos => {
+                currentPosition = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+                map.setView([currentPosition.lat, currentPosition.lng], 15);
+
+                userMarker = L.marker([currentPosition.lat, currentPosition.lng],
+                    { icon: divIcon(
+                        `<div style="width:16px;height:16px;background:#00d4ff;border-radius:50%;
+                         border:3px solid rgba(0,212,255,.3);box-shadow:0 0 14px #00d4ff;"></div>`,
+                        [16,16]) }
+                ).addTo(map).bindPopup('<b>📍 You are here</b>');
+
+                startSafeZoneChecker();
+            }, () => console.log('Geolocation denied.'));
+        }
+
+        /* ─── Theme ──────────────────────────────────────────────────────── */
+        document.getElementById('theme-btn').addEventListener('click', () => {
+            isDark = !isDark;
+            document.getElementById('theme-btn').textContent = isDark ? '🌙' : '☀️';
+            if (isDark) { map.removeLayer(lightLayer); darkLayer.addTo(map); }
+            else        { map.removeLayer(darkLayer);  lightLayer.addTo(map); }
         });
-        safeZones = [];
 
-        snapshot.forEach((doc) => {
-            const data = doc.data();
-            const lat = data.location?.latitude;
-            const lng = data.location?.longitude;
+        /* ─── Nominatim Autocomplete (free, no key needed) ───────────────── */
+        function setupAC(inputId, dropId, onPick) {
+            const inp  = document.getElementById(inputId);
+            const drop = document.getElementById(dropId);
 
-            if (lat && lng) {
-                const latLng = new google.maps.LatLng(lat, lng);
-                
-                const markerIcon = document.createElement('div');
-                markerIcon.className = 'marker-safezone';
-                markerIcon.textContent = 'P'; // For 'Police'
+            inp.addEventListener('input', () => {
+                const timer = inputId === 'start-input' ? 'startTimer' : 'endTimer';
+                clearTimeout(inputId === 'start-input' ? startTimer : endTimer);
+                const val = inp.value.trim();
+                if (val.length < 3) { drop.classList.remove('open'); return; }
 
-                const marker = new AdvancedMarkerElement({
-                    position: latLng,
-                    map: map,
-                    title: data.name,
-                    content: markerIcon
+                const t = setTimeout(async () => {
+                    try {
+                        const r = await fetch(
+                            `https://nominatim.openstreetmap.org/search?` +
+                            `q=${encodeURIComponent(val)}&format=json&limit=5&addressdetails=1`,
+                            { headers: { 'Accept-Language': 'en' } }
+                        );
+                        renderAC(await r.json(), drop, inp, onPick);
+                    } catch (e) { console.error('Nominatim:', e); }
+                }, 380);
+
+                if (inputId === 'start-input') startTimer = t; else endTimer = t;
+            });
+
+            inp.addEventListener('blur', () =>
+                setTimeout(() => drop.classList.remove('open'), 220));
+        }
+
+        function renderAC(results, drop, inp, onPick) {
+            if (!results.length) { drop.classList.remove('open'); return; }
+            drop.innerHTML = '';
+            results.forEach(r => {
+                const parts  = r.display_name.split(', ');
+                const name   = parts[0];
+                const detail = parts.slice(1, 4).join(', ');
+                const el     = document.createElement('div');
+                el.className = 'ac-item';
+                el.innerHTML = `<div class="ac-name">${name}</div><div class="ac-detail">${detail}</div>`;
+                el.addEventListener('mousedown', () => {
+                    inp.value = r.display_name;
+                    drop.classList.remove('open');
+                    onPick({ lat: parseFloat(r.lat), lng: parseFloat(r.lon) });
                 });
-                
-                safeZones.push({ location: latLng, name: data.name, marker: marker });
-            }
-        });
-        console.log(`Loaded ${safeZones.length} safe zones.`);
-    });
-}
-
-        function setupSosButton() {
-    console.log("Attempting to set up the SOS button...");
-    const sosBtn = document.getElementById('sos-btn');
-
-    if (!sosBtn) {
-        console.error("SOS BUTTON ERROR: The button with id='sos-btn' was not found in the HTML.");
-        return;
-    }
-
-    sosBtn.addEventListener('click', () => {
-        console.log("SOS button clicked!");
-
-        if (!currentPosition) {
-            console.error("SOS FAILED: The 'currentPosition' variable is null. Did you grant location permissions?");
-            showToast("Could not get your location. Please click 'Allow' on the location prompt.", true);
-            return;
+                drop.appendChild(el);
+            });
+            drop.classList.add('open');
         }
 
-        console.log("Location found:", currentPosition);
+        setupAC('start-input', 'start-drop', p => { selectedStart = p; });
+        setupAC('end-input',   'end-drop',   p => { selectedEnd   = p; });
 
-        // --- IMPORTANT: Replace this with a real emergency contact email ---
-        const emergencyEmail = "arpit.23bce7565@vitapstudent.ac.in"; 
-        
-        const subject = "SOS Alert - Urgent Help Needed";
-        const body = `I am in need of urgent help. My current location is:\n\n` +
-                   `Latitude: ${currentPosition.lat}\n` +
-                   `Longitude: ${currentPosition.lng}\n\n` +
-                   `Link to my location on Google Maps:\n` +
-                   `https://www.google.com/maps?q=${currentPosition.lat},${currentPosition.lng}`;
-        
-        const mailtoLink = `mailto:${emergencyEmail}?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
-        console.log("Generated mailto link:", mailtoLink);
+        /* ─── OSRM Routing (free, no key needed) ─────────────────────────── */
+        const OSRM = 'https://router.project-osrm.org/route/v1';
 
-        console.log("Attempting to open email client...");
-        window.location.href = mailtoLink;
-    });
+        async function osrmRoute(from, to, profile = 'foot') {
+            const url = `${OSRM}/${profile}/${from.lng},${from.lat};${to.lng},${to.lat}` +
+                        `?alternatives=true&steps=false&geometries=geojson&overview=full`;
+            const r = await fetch(url);
+            if (!r.ok) throw new Error('OSRM ' + r.status);
+            return r.json();
+        }
 
-    console.log("SOS button listener attached successfully.");
-}
+        /* ─── Safety Scoring ─────────────────────────────────────────────── */
+        function scoreRoute(geoCoords) {
+            // geoCoords = [[lng, lat], ...] from OSRM GeoJSON
+            const THRESHOLD = 250; // metres
+            let danger = 0;
 
-        // Add this function to check for nearby safe zones
-        function startSafeZoneChecker() {
-            let notifiedZone = null; // Prevents repeat notifications for the same zone
+            dangerPoints.forEach(pt => {
+                const ptLL = L.latLng(pt.lat, pt.lng);
+                const near = geoCoords.some(c =>
+                    L.latLng(c[1], c[0]).distanceTo(ptLL) < THRESHOLD
+                );
+                if (near) danger += pt.weight;
+            });
 
-            setInterval(() => {
-                if (!currentPosition || safeZones.length === 0) return;
+            const lengthKm = geoCoords.reduce((sum, c, i) => {
+                if (i === 0) return sum;
+                return sum + L.latLng(geoCoords[i-1][1], geoCoords[i-1][0])
+                              .distanceTo(L.latLng(c[1], c[0]));
+            }, 0) / 1000;
 
-                for (const zone of safeZones) {
-                    const distance = google.maps.geometry.spherical.computeDistanceBetween(
-                        new google.maps.LatLng(currentPosition.lat, currentPosition.lng),
-                        zone.location
+            if (lengthKm <= 0) return 100;
+            const density = danger / lengthKm;
+            return Math.round(Math.max(0, 1 - density / 10) * 100);
+        }
+
+        /* ─── Route colours ──────────────────────────────────────────────── */
+        function routeColor(score, isSafest) {
+            if (isSafest)   return '#00ffaa';
+            if (score < 50) return '#ff3c3c';
+            if (score < 80) return '#ffb800';
+            return '#4f8eff';
+        }
+
+        /* ─── Calculate & Display Route ──────────────────────────────────── */
+        async function findRoute() {
+            if (!isSafeDataReady) { showToast('Safety data loading… try again shortly.', 'err'); return; }
+            if (!selectedStart)   { showToast('Please pick a starting point from the list.', 'err'); return; }
+            if (!selectedEnd)     { showToast('Please pick a destination from the list.', 'err'); return; }
+
+            routeLayers.forEach(l => map.removeLayer(l));
+            routeLayers = [];
+
+            const btn = document.getElementById('route-btn');
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spin"></span>Calculating…';
+
+            ['d-walk','d-drive','d-cycle'].forEach(id => {
+                document.getElementById(id).textContent = '…';
+            });
+
+            try {
+                /* Walking routes (alternatives) */
+                const wData = await osrmRoute(selectedStart, selectedEnd, 'foot');
+                if (!wData.routes?.length) throw new Error('No routes found');
+
+                const scored = wData.routes.map(r => ({
+                    r, coords: r.geometry.coordinates,
+                    score: scoreRoute(r.geometry.coordinates)
+                }));
+
+                const maxScore  = Math.max(...scored.map(x => x.score));
+                let   safestRef = null;
+
+                /* Draw worst-first so safest is on top */
+                [...scored].sort((a,b) => a.score - b.score).forEach(({ r, coords, score }) => {
+                    const isSafest = score === maxScore && safestRef === null;
+                    if (isSafest) safestRef = { r, score };
+
+                    const lls   = coords.map(c => [c[1], c[0]]);
+                    const layer = L.polyline(lls, {
+                        color:   routeColor(score, isSafest),
+                        weight:  isSafest ? 7 : 4,
+                        opacity: isSafest ? 0.95 : 0.5,
+                        lineCap: 'round', lineJoin: 'round'
+                    }).addTo(map);
+                    routeLayers.push(layer);
+                });
+
+                /* Fit bounds */
+                if (safestRef) {
+                    const lls = safestRef.r.geometry.coordinates.map(c => [c[1], c[0]]);
+                    map.fitBounds(L.latLngBounds(lls), { padding: [60,60] });
+                    updateScoreUI(safestRef.score, safestRef.r.distance);
+                    document.getElementById('d-walk').textContent = fmtDuration(safestRef.r.duration);
+                }
+
+                /* Drive duration */
+                osrmRoute(selectedStart, selectedEnd, 'driving').then(d => {
+                    document.getElementById('d-drive').textContent =
+                        d.routes?.[0] ? fmtDuration(d.routes[0].duration) : 'N/A';
+                }).catch(() => { document.getElementById('d-drive').textContent = 'N/A'; });
+
+                /* Cycling duration */
+                osrmRoute(selectedStart, selectedEnd, 'cycling').then(d => {
+                    document.getElementById('d-cycle').textContent =
+                        d.routes?.[0] ? fmtDuration(d.routes[0].duration) : 'N/A';
+                }).catch(() => { document.getElementById('d-cycle').textContent = 'N/A'; });
+
+            } catch(e) {
+                console.error(e);
+                showToast('Could not find routes — try different locations.', 'err');
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = 'Find Safest Route';
+            }
+        }
+
+        function updateScoreUI(score, distM) {
+            const numEl  = document.getElementById('score-num');
+            const riskEl = document.getElementById('score-risk');
+            const fillEl = document.getElementById('score-fill');
+            const distEl = document.getElementById('dist-line');
+
+            numEl.textContent  = score;
+            distEl.textContent = `Distance: ${fmtDistance(distM)}`;
+            fillEl.style.width = score + '%';
+
+            if (score >= 80) {
+                numEl.style.color  = 'var(--safe)';
+                riskEl.style.color = 'var(--safe)';
+                riskEl.textContent = 'LOW RISK';
+                fillEl.style.background = 'linear-gradient(90deg, #00cc80, #00ffaa)';
+            } else if (score >= 50) {
+                numEl.style.color  = 'var(--warn)';
+                riskEl.style.color = 'var(--warn)';
+                riskEl.textContent = 'MODERATE RISK';
+                fillEl.style.background = 'linear-gradient(90deg, #cc9000, #ffb800)';
+            } else {
+                numEl.style.color  = 'var(--danger)';
+                riskEl.style.color = 'var(--danger)';
+                riskEl.textContent = 'HIGH RISK';
+                fillEl.style.background = 'linear-gradient(90deg, #cc0000, #ff3c3c)';
+            }
+
+            document.getElementById('route-info').style.display = 'block';
+        }
+
+        document.getElementById('route-btn').addEventListener('click', findRoute);
+
+        /* ─── Firebase: Safety Reports ───────────────────────────────────── */
+        function initHeatmap() {
+            onSnapshot(query(collection(db, 'checkins')), snapshot => {
+                dangerPoints = [];
+                reportMarkers.forEach(m => map.removeLayer(m));
+                reportMarkers = [];
+
+                snapshot.forEach(doc => {
+                    const d   = doc.data();
+                    const lat = d.Location?.lat || d.location?.lat;
+                    const lng = d.Location?.lng || d.location?.lng;
+                    if (!lat || !lng) return;
+
+                    let weight = 0, color = '#00ffaa', glow = 'rgba(0,255,170,.5)';
+                    switch (d.type) {
+                        case 'incident': weight=5; color='#ff3c3c'; glow='rgba(255,60,60,.5)';   break;
+                        case 'unlit':    weight=3; color='#ffb800'; glow='rgba(255,184,0,.5)';   break;
+                        case 'crowded':  weight=1; color='#4f8eff'; glow='rgba(79,142,255,.5)';  break;
+                        case 'safe':     weight=0; color='#00ffaa'; glow='rgba(0,255,170,.5)';   break;
+                    }
+
+                    dangerPoints.push({ lat, lng, weight });
+
+                    const icon = divIcon(
+                        `<div style="width:18px;height:18px;border-radius:50%;background:${color};
+                         border:2px solid rgba(255,255,255,.25);box-shadow:0 0 10px ${glow};"></div>`,
+                        [18,18]
                     );
+                    const m = L.marker([lat, lng], { icon }).addTo(map)
+                               .bindPopup(`<b>${(d.type||'Unknown').toUpperCase()}</b><br>Risk weight: ${weight}`);
+                    reportMarkers.push(m);
+                });
 
-                    // Notify if user is within 250 meters and hasn't been notified for this zone yet
-                    if (distance < 250 && notifiedZone !== zone.name) {
-                        showToast(`You are near a safe zone: ${zone.name}`);
-                        notifiedZone = zone.name; // Mark as notified
-                        // Reset after a while so they can be notified again later
-                        setTimeout(() => { notifiedZone = null; }, 60000); // Reset after 1 minute
-                        break; 
+                isSafeDataReady = true;
+                const dot  = document.getElementById('status-dot');
+                const text = document.getElementById('status-text');
+                dot.classList.add('ready');
+                text.textContent = `${snapshot.size} reports loaded`;
+                setTimeout(() =>
+                    document.getElementById('data-status').classList.add('hidden'), 3000);
+
+            }, err => {
+                console.error('Firestore checkins error:', err);
+                // Still allow routing even if Firebase fails
+                isSafeDataReady = true;
+                document.getElementById('status-text').textContent = 'Safety data unavailable';
+                setTimeout(() =>
+                    document.getElementById('data-status').classList.add('hidden'), 3000);
+            });
+        }
+
+        /* ─── Firebase: Safe Zones (Police Stations) ─────────────────────── */
+        function initSafeZones() {
+            onSnapshot(query(collection(db, 'safezones')), snapshot => {
+                safeZonesData.forEach(z => map.removeLayer(z.marker));
+                safeZonesData = [];
+
+                snapshot.forEach(doc => {
+                    const d   = doc.data();
+                    const lat = d.location?.latitude;
+                    const lng = d.location?.longitude;
+                    if (!lat || !lng) return;
+
+                    const icon = divIcon(
+                        `<div style="width:22px;height:22px;border-radius:50%;background:#2563eb;
+                         border:2px solid #fff;display:flex;align-items:center;justify-content:center;
+                         color:#fff;font-weight:700;font-size:11px;
+                         box-shadow:0 0 10px rgba(37,99,235,.6);">P</div>`,
+                        [22,22]
+                    );
+                    const m = L.marker([lat, lng], { icon }).addTo(map)
+                               .bindPopup(`<b>🛡️ ${d.name || 'Police Station'}</b><br>Safe Zone`);
+                    safeZonesData.push({ lat, lng, name: d.name || 'Safe Zone', marker: m });
+                });
+            });
+        }
+
+        /* ─── Safe Zone Proximity Alert ──────────────────────────────────── */
+        let notifiedZone = null;
+        function startSafeZoneChecker() {
+            setInterval(() => {
+                if (!currentPosition || !safeZonesData.length) return;
+                for (const z of safeZonesData) {
+                    const dist = L.latLng(currentPosition.lat, currentPosition.lng)
+                                  .distanceTo(L.latLng(z.lat, z.lng));
+                    if (dist < 250 && notifiedZone !== z.name) {
+                        showToast(`🛡️ Safe zone nearby: ${z.name}`, 'ok');
+                        notifiedZone = z.name;
+                        setTimeout(() => { notifiedZone = null; }, 60000);
+                        break;
                     }
                 }
-            }, 5000); // Check every 5 seconds
+            }, 5000);
         }
-        async function init() {
-            ({ Map } = await google.maps.importLibrary("maps"));
-            ({ AdvancedMarkerElement } = await google.maps.importLibrary("marker"));
-           
-            map = new Map(document.getElementById("map"), {
-                center: { lat: 16.5062, lng: 80.6480 },
-                zoom: 14,
-                disableDefaultUI: true,
-                mapId: 'd332a2b5e985ab1d6a686ae4',
-            });
 
-            if (!checkApiKey()) return;
-           
-            directionsService = new google.maps.DirectionsService();
-
-            if (navigator.geolocation) {
-                navigator.geolocation.getCurrentPosition(
-                    (position) => {
-                        currentPosition = { lat: position.coords.latitude, lng: position.coords.longitude };
-                        const markerIcon = document.createElement('div');
-                            // Apply the base report-marker class for size/shape, and the blue specific class
-                            markerIcon.className = 'report-marker marker-crowded'; // Using the 'marker-crowded' style
-                            userMarker = new AdvancedMarkerElement({
-                                position: currentPosition,
-                                map: map,
-                                title: "Your Location",
-                                content: markerIcon
-                            });
-                    },
-                    () => { console.log("Geolocation service failed."); }
-                );
+        /* ─── SOS Button ─────────────────────────────────────────────────── */
+        document.getElementById('sos-btn').addEventListener('click', () => {
+            if (!currentPosition) {
+                showToast('Location unavailable — please allow location access.', 'err'); return;
             }
-           
-            initializeHeatmap();
-            initializeSafeZones();
-            setupRouting();
-            setupSosButton(); // <-- ADD THIS LINE
-            startSafeZoneChecker(); // <-- ADD THIS LINE
-            
-            // Setup autocomplete after a short delay to ensure DOM is ready
-            setTimeout(() => {
-                setupAutocompleteListeners();
-            }, 100);
-        }
-
-        function setupAutocompleteListeners() {
-            // Create traditional Google Places Autocomplete instances
-            const startInput = document.getElementById('start-input');
-            const endInput = document.getElementById('end-input');
-
-            startAutocomplete = new google.maps.places.Autocomplete(startInput);
-            endAutocomplete = new google.maps.places.Autocomplete(endInput);
-
-            // Set bias to current location if available
-            if (currentPosition) {
-                const circle = new google.maps.Circle({
-                    center: currentPosition,
-                    radius: 10000 // 10km radius
-                });
-                startAutocomplete.setBounds(circle.getBounds());
-                endAutocomplete.setBounds(circle.getBounds());
-            }
-
-            // Add event listeners for place selection
-            startAutocomplete.addListener('place_changed', () => {
-                selectedStartPlace = startAutocomplete.getPlace();
-                console.log('Start place selected:', selectedStartPlace);
-                
-                if (!selectedStartPlace.geometry) {
-                    console.log('No details available for start location');
-                    return;
-                }
-            });
-
-            endAutocomplete.addListener('place_changed', () => {
-                selectedEndPlace = endAutocomplete.getPlace();
-                console.log('End place selected:', selectedEndPlace);
-                
-                if (!selectedEndPlace.geometry) {
-                    console.log('No details available for end location');
-                    return;
-                }
-            });
-        }
-
-        function setupRouting() {
-            const getRouteBtn = document.getElementById('get-route-btn');
-            getRouteBtn.addEventListener('click', calculateAndDisplayRoute);
-        }
-
-async function calculateAndDisplayRoute() {
-    if (!isSafetyDataLoaded) {
-        showToast("Safety data is loading, please try again in a moment.", true);
-        return;
-    }
-    
-    routeRenderers.forEach(renderer => renderer.setMap(null));
-    routeRenderers = [];
-
-    if (!selectedStartPlace || !selectedStartPlace.geometry || !selectedEndPlace || !selectedEndPlace.geometry) {
-        showToast("Please select valid start and end locations from the dropdown.", true);
-        return;
-    }
-
-    // --- Clear UI and RESET styles for new calculation ---
-    ['driving', 'bicycling', 'transit', 'walking'].forEach(mode => {
-        const durationSpan = document.getElementById(`duration-${mode}`);
-        if (durationSpan) {
-            durationSpan.textContent = 'Calculating...';
-            durationSpan.parentElement.classList.remove('text-gray-500');
-        }
-    });
-
-    const origin = selectedStartPlace.geometry.location;
-    const destination = selectedEndPlace.geometry.location;
-
-    // --- Step 1: Get all alternative WALKING routes to draw on the map ---
-    try {
-        const response = await new Promise((resolve, reject) => {
-            directionsService.route({
-                origin: origin,
-                destination: destination,
-                travelMode: 'WALKING',
-                provideRouteAlternatives: true
-            }, (res, status) => (status === 'OK') ? resolve(res) : reject(status));
+            const email   = 'arpit.23bce7565@vitapstudent.ac.in';
+            const subject = 'SOS Alert - Urgent Help Needed';
+            const body    = `I need urgent help.\n\nMy location:\n` +
+                            `Latitude:  ${currentPosition.lat}\n` +
+                            `Longitude: ${currentPosition.lng}\n\n` +
+                            `https://www.google.com/maps?q=${currentPosition.lat},${currentPosition.lng}`;
+            window.location.href =
+                `mailto:${encodeURIComponent(email)}` +
+                `?subject=${encodeURIComponent(subject)}` +
+                `&body=${encodeURIComponent(body)}`;
         });
 
-        let safestRoute = null;
-        let maxScore = -1;
-        const scoredRoutes = [];
+        /* ─── Boot ───────────────────────────────────────────────────────── */
+        initMap();
+        initGeo();
+        initHeatmap();
+        initSafeZones();
 
-        response.routes.forEach(route => {
-            const score = scoreRoute(route);
-            scoredRoutes.push({ route, score });
-            if (score > maxScore) {
-                maxScore = score;
-                safestRoute = route;
+        // Fallback: allow routing even if Firebase never responds
+        setTimeout(() => {
+            if (!isSafeDataReady) {
+                isSafeDataReady = true;
+                console.warn('Firebase timeout — routing enabled with no safety overlay.');
             }
-        });
+        }, 8000);
 
-        // Render each walking route with risk-based coloring
-        scoredRoutes.forEach(({ route, score }) => {
-            let strokeColor = '#4F46E5'; // Default Blue for low-risk alternatives
-            let strokeWeight = 6;
-            let zIndex = 1;
-
-            if (score < 50) {
-                strokeColor = '#EF4444'; // Red for High Risk
-            } else if (score < 80) {
-                strokeColor = '#F59E0B'; // Yellow for Moderate Risk
-            }
-
-            if (route === safestRoute) {
-                strokeColor = '#059669'; // Bright Green for the safest route
-                strokeWeight = 8;
-                zIndex = 10; // Make sure the safest route is drawn on top
-            }
-
-            const renderer = new google.maps.DirectionsRenderer({
-                map: map,
-                directions: response,
-                routeIndex: response.routes.indexOf(route),
-                suppressMarkers: true,
-                polylineOptions: {
-                    strokeColor: strokeColor,
-                    strokeWeight: strokeWeight,
-                    strokeOpacity: 0.9,
-                    zIndex: zIndex
-                }
-            });
-            routeRenderers.push(renderer);
-        });
-
-        if (safestRoute) {
-            updateRouteUI(maxScore, safestRoute);
-        }
-
-    } catch (e) {
-        showToast("Could not find any walking routes.", true);
-    }
-
-    // --- Step 2: Get durations for ALL travel modes for the info box ---
-    const getDuration = async (mode) => {
-        try {
-            const response = await new Promise((resolve, reject) => {
-                directionsService.route({
-                    origin: origin,
-                    destination: destination,
-                    travelMode: mode,
-                }, (res, status) => (status === 'OK') ? resolve(res) : reject(status));
-            });
-            return response.routes[0].legs[0].duration.text;
-        } catch (e) {
-            return 'No route found';
-        }
-    };
-    
-    // Fetch and update each duration in the info panel
-    const modesToFetch = ['driving', 'bicycling', 'transit', 'walking'];
-    for (const mode of modesToFetch) {
-        const duration = await getDuration(mode.toUpperCase());
-        const durationSpan = document.getElementById(`duration-${mode}`);
-        if (durationSpan) {
-            durationSpan.textContent = duration;
-            if (duration === 'No route found') {
-                durationSpan.parentElement.classList.add('text-gray-500');
-            }
-        }
-    }
-}
-       
-function scoreRoute(route) {
-    let dangerScore = 0;
-    
-    // Create a Google Maps Polyline object from the route's path
-    const routePolyline = new google.maps.Polyline({ path: route.overview_path });
-
-    // This value represents the 'danger density' at which a route is considered 100% unsafe.
-    // For example, a value of 10 means a route with an average of two major incidents (weight=5) 
-    // per kilometer will have a score of 0.
-    // **You can adjust this value to make the scoring more or less strict.**
-    const MAX_DANGER_DENSITY = 10;
-
-    dangerPoints.forEach(point => {
-        // Use a built-in Maps function to check if a danger point is on or near the route line.
-        // The tolerance (in meters) defines how close it needs to be. Let's use 250m for more precision.
-        if (google.maps.geometry.poly.isLocationOnEdge(point.location, routePolyline, 250)) {
-            dangerScore += point.weight;
-        }
-    });
-
-    // Normalize the danger score by the route's length in kilometers.
-    // This prevents longer routes from being unfairly penalized.
-    const routeLengthKm = route.legs[0].distance.value / 1000;
-
-    if (routeLengthKm > 0) {
-        const dangerDensity = dangerScore / routeLengthKm;
-        
-        // Convert the danger density into a safety score from 0 to 100
-        const safetyPercentage = Math.max(0, 1 - (dangerDensity / MAX_DANGER_DENSITY));
-        const finalSafetyScore = Math.round(safetyPercentage * 100);
-        
-        return finalSafetyScore;
-    }
-
-    return 100; // If the route has no length, it's safe by default.
-}
-
-function updateRouteUI(score, route) {
-    const routeInfo = document.getElementById('route-info');
-    const safetyScoreEl = document.getElementById('safety-score');
-    const safetyLevelEl = document.getElementById('safety-level');
-    const distanceEl = document.getElementById('route-distance');
-    
-    safetyScoreEl.textContent = score; // This is now 0-100
-
-    // Set risk level based on the new 0-100 safety score
-    if (score >= 80) {
-        safetyLevelEl.textContent = "Low Risk";
-        safetyLevelEl.className = "text-green-400 font-medium";
-    } else if (score >= 50) {
-        safetyLevelEl.textContent = "Moderate Risk";
-        safetyLevelEl.className = "text-yellow-400 font-medium";
-    } else {
-        safetyLevelEl.textContent = "High Risk";
-        safetyLevelEl.className = "text-red-400 font-medium";
-    }
-
-    if (route && route.legs && route.legs.length > 0) {
-        const leg = route.legs[0];
-        distanceEl.textContent = `Distance: ${leg.distance.text}`;
-    }
-    routeInfo.classList.remove('hidden');
-}
-
-        function showToast(message, isError = false) {
-            const toast = document.getElementById('toast-notification');
-            const toastMessage = document.getElementById('toast-message');
-            toastMessage.textContent = message;
-            toast.className = `absolute bottom-8 left-1/2 -translate-x-1/2 z-40 text-white py-2 px-5 rounded-lg shadow-lg ${isError ? 'bg-red-600' : 'bg-gray-700'} show`;
-            setTimeout(() => {
-                toast.classList.remove('show');
-            }, 3000);
-        }
-
-function initializeHeatmap() {
-    const q = query(collection(db, "checkins"));
-
-    console.log("Attaching Firestore listener...");
-
-    onSnapshot(q, (snapshot) => {
-        console.log("onSnapshot callback fired.");
-        console.log(`Snapshot contains ${snapshot.size} documents.`);
-
-        dangerPoints = [];
-        debugMarkers.forEach(marker => marker.setMap(null));
-        debugMarkers = [];
-
-        snapshot.forEach((doc) => {
-            console.log("Processing doc:", doc.id, doc.data());
-            const data = doc.data();
-            const lat = data.Location?.lat || data.location?.lat;
-            const lng = data.Location?.lng || data.location?.lng;
-
-            if (lat && lng) {
-                const latLng = new google.maps.LatLng(lat, lng);
-
-                let weight = 0;
-                let markerClass = 'report-marker'; // Start with the base class
-
-                switch (data.type) {
-                    case 'incident':
-                        weight = 5;
-                        markerClass += ' marker-incident'; // Add red class
-                        break;
-                    case 'unlit':
-                        weight = 3;
-                        markerClass += ' marker-unlit'; // Add yellow class
-                        break;
-                    case 'crowded':
-                        weight = 1;
-                        markerClass += ' marker-crowded'; // Add blue class
-                        break;
-                    case 'safe':
-                        // No weight for routing, but we'll still show a green marker
-                        markerClass += ' marker-safe'; // Add green class
-                        break;
-                }
-
-                if (data.type) { // Create a marker for any valid report type
-                    dangerPoints.push({ location: latLng, weight: weight });
-
-                    const markerIcon = document.createElement('div');
-                    markerIcon.className = markerClass; // Apply the correct classes
-
-                    const marker = new AdvancedMarkerElement({
-                        position: latLng,
-                        map: map,
-                        title: `Type: ${data.type}, Weight: ${weight}`,
-                        content: markerIcon
-                    });
-                    debugMarkers.push(marker);
-                }
-            } else {
-                console.warn("Doc missing location data:", doc.id);
-            }
-        });
-
-        console.log("Finished processing all documents.");
-        isSafetyDataLoaded = true;
-        console.log("Safety data loaded and processed. Ready for routing.");
-    }, (error) => {
-        console.error("Firestore snapshot error: ", error);
-    });
-}
-       
-        // Start the Application
-        document.addEventListener('DOMContentLoaded', init);
     </script>
 </body>
 </html>

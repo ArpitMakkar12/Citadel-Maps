@@ -44,7 +44,6 @@
             z-index: 0;
         }
 
-        .leaflet-control-attribution,
         .leaflet-control-zoom { display: none !important; }
 
         /* ── PANEL ───────────────────────────────────────────────────────── */
@@ -586,12 +585,16 @@
         /* ─── Map init ───────────────────────────────────────────────────── */
         function initMap() {
             map = L.map('map', { center: [16.5062, 80.6480], zoom: 14,
-                                  zoomControl: false, attributionControl: false });
+                                  zoomControl: false, attributionControl: true });
 
-            darkLayer  = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
-                                      { maxZoom: 19 }).addTo(map);
-            lightLayer = L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
-                                      { maxZoom: 19 });
+            const CARTO_KEY = 'cb1_4nhg_1_2bc63736ad5e1a2527baf0e5';
+
+            const ATTR = '&copy; OpenStreetMap contributors &copy; CARTO';
+
+            darkLayer  = L.tileLayer(`https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`,
+                                      { maxZoom: 19, attribution: ATTR }).addTo(map);
+            lightLayer = L.tileLayer(`https://basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}{r}.png?key=${CARTO_KEY}`,
+                                      { maxZoom: 19, attribution: ATTR });
         }
 
         /* ─── Geolocation ────────────────────────────────────────────────── */
